@@ -71,6 +71,7 @@ class DinoVisionTransformer(nn.Module):
         pos_embed_rope_jitter_coords: float | None = None,
         pos_embed_rope_rescale_coords: float | None = None,
         pos_embed_rope_dtype: str = "bf16",
+        use_activation_checkpointing: bool = False,
         embed_dim: int = 768,
         depth: int = 12,
         num_heads: int = 12,
@@ -108,6 +109,8 @@ class DinoVisionTransformer(nn.Module):
             embed_dim=embed_dim,
             flatten_embedding=False,
         )
+
+        self.use_activation_checkpointing = use_activation_checkpointing
 
         self.cls_token = nn.Parameter(torch.empty(1, 1, embed_dim, device=device))
         self.n_storage_tokens = n_storage_tokens
@@ -231,7 +234,10 @@ class DinoVisionTransformer(nn.Module):
                 rope_sincos = [self.rope_embed(H=H, W=W) for H, W in rope]
             else:
                 rope_sincos = [None for r in rope]
-            x = blk(x, rope_sincos)
+            if self.use_activation_checkpointing:
+                x = torch.utils.checkpoint.checkpoint(blk, x, rope_sincos, use_reentrant=False)
+            else:
+                x = blk(x, rope_sincos)
         all_x = x
         output = []
         for idx, (x, masks) in enumerate(zip(all_x, masks_list)):
